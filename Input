@@ -1,0 +1,8 @@
+extern fib(x)
+
+def suc(x)
+  x + 1
+
+fib(40)
+
+suc(3)
