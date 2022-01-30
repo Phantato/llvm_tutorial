@@ -9,21 +9,6 @@ pub enum Token {
     LeftParenthesis,
     RightParenthesis,
     Comma,
-    Identifier(Box<[u8]>),
+    Identifier(Vec<u8>),
     Number(usize),
-}
-
-pub fn is_binary_op(token: &Token) -> bool {
-    match token {
-        Token::Operator(op) => match op {
-            Operator::Assign
-            | Operator::Add
-            | Operator::Sub
-            | Operator::Mul
-            | Operator::Div
-            | Operator::Les => true,
-            _ => false,
-        },
-        _ => false,
-    }
 }

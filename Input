@@ -1,8 +1,7 @@
-extern fib(x)
+def square(a, b)
+  a * a + (2 * a * b + b * b)
 
-def suc(x)
-  x + 1
+def add(a, b)
+  a + b
 
-fib(40)
-
-suc(3)
+square(1 + 2, add(4, 5))

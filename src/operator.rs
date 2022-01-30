@@ -23,6 +23,18 @@ impl Operator {
             _ => 0,
         }
     }
+
+    pub fn is_binary_op(&self) -> bool {
+        match self {
+            Operator::Assign
+            | Operator::Add
+            | Operator::Sub
+            | Operator::Mul
+            | Operator::Div
+            | Operator::Les => true,
+            _ => false,
+        }
+    }
 }
 
 impl PartialOrd for Operator {

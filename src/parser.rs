@@ -4,13 +4,13 @@ use crate::ast::*;
 use crate::lexer::Lexer;
 use crate::token::*;
 
-pub struct Parser {
-    source: Lexer,
+pub struct Parser<'lex> {
+    source: &'lex mut Lexer<'lex>,
     buffer: Token,
 }
 
-impl Parser {
-    pub fn new(mut source: Lexer) -> Parser {
+impl<'lex> Parser<'lex> {
+    pub fn new(source: &'lex mut Lexer<'lex>) -> Parser<'lex> {
         let buffer = source.emit_token();
         Parser { source, buffer }
     }
@@ -27,7 +27,6 @@ impl Parser {
         match self.consume_token() {
             Token::Number(value) => Node::Number(value),
             Token::LeftParenthesis => {
-                println!("left parenthesis");
                 let ret = self.parse_expr();
                 match self.consume_token() {
                     Token::RightParenthesis => ret,
@@ -46,7 +45,7 @@ impl Parser {
                             _ => panic!("Expected to see `)` or `,` in arguments list"),
                         };
                     }
-                    Node::Call(CallNode { name, args })
+                    Node::Call { name, args }
                 }
                 _ => Node::Variable(name),
             },
@@ -55,29 +54,25 @@ impl Parser {
     }
 
     fn parse_binary_expr(&mut self, mut lhs: Node, precedence: i8) -> Node {
-        while let Token::Operator(op) = &self.look_ahead() {
+        while let Token::Operator(op) = self.look_ahead() {
             if precedence > op.precedence() {
                 break;
             }
             if let Token::Operator(op) = self.consume_token() {
                 let mut rhs = self.parse_primary();
-                while is_binary_op(&self.buffer) {
-                    if let Token::Operator(ahead) = &self.buffer {
-                        if &op >= ahead {
-                            break;
-                        }
-                        if let Token::Operator(ahead) = self.consume_token() {
-                            rhs = self.parse_binary_expr(rhs, op.precedence() + (ahead > op) as i8);
-                        }
+                while let Token::Operator(ahead) = self.look_ahead() {
+                    if ahead.is_binary_op() && op < *ahead {
+                        let next_prec = op.precedence() + (*ahead > op) as i8;
+                        rhs = self.parse_binary_expr(rhs, next_prec);
                     } else {
-                        panic!("Expected to see an operator here");
+                        break;
                     }
                 }
-                lhs = Node::Binary(BinaryNode {
+                lhs = Node::Binary {
                     op,
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
-                })
+                }
             }
         }
         lhs
@@ -100,7 +95,7 @@ impl Parser {
                         tok @ _ => panic!("Unexpected token here {:?}", tok),
                     }
                 }
-                Node::Prototype(PrototypeNode { name, args })
+                Node::Prototype { name, args }
             } else {
                 panic!("Expected to see `(` in `prototype");
             }
@@ -111,12 +106,9 @@ impl Parser {
 
     fn parse_def(&mut self) -> Node {
         self.consume_token();
-        if let Node::Prototype(prototype) = self.parse_prototypes() {
-            let body = Box::new(self.parse_expr());
-            Node::Function(FunctionNode { prototype, body })
-        } else {
-            panic!("Expected to see a prototype");
-        }
+        let prototype = Box::new(self.parse_prototypes());
+        let body = Box::new(self.parse_expr());
+        Node::Function { prototype, body }
     }
 
     fn parse_extern(&mut self) -> Node {
@@ -125,14 +117,13 @@ impl Parser {
     }
 
     fn parse_top_level_expr(&mut self) -> Node {
-        let body = Box::new(self.parse_expr());
-        Node::Function(FunctionNode {
-            prototype: PrototypeNode {
-                name: Box::new([]),
+        Node::Function {
+            prototype: Box::new(Node::Prototype {
+                name: Vec::from("__anon_expr"),
                 args: Vec::new(),
-            },
-            body,
-        })
+            }),
+            body: Box::new(self.parse_expr()),
+        }
     }
 
     pub fn emit_node(&mut self) -> Node {

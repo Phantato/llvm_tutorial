@@ -6,13 +6,13 @@ use crate::operator::Operator;
 use crate::token::*;
 use crate::util::*;
 
-pub struct Lexer {
-    source: File,
+pub struct Lexer<'f> {
+    source: &'f File,
     buffer: [u8; 1],
 }
 
-impl Lexer {
-    pub fn new(mut source: File) -> Lexer {
+impl<'f> Lexer<'f> {
+    pub fn new(source: &'f mut File) -> Lexer<'f> {
         let mut buffer = [0u8; 1];
         source.read(&mut buffer).unwrap();
         Lexer { source, buffer }
@@ -45,7 +45,7 @@ impl Lexer {
         while is_space(self.look_ahead()) {
             self.consume_char();
         }
-        let tok = match self.look_ahead() {
+        match self.look_ahead() {
             0 => Token::Eof,
             ch @ _ if is_digit(ch) => {
                 let mut number: usize = 0;
@@ -60,17 +60,13 @@ impl Lexer {
                 while is_alnum(self.look_ahead()) {
                     str.push(self.consume_char());
                 }
-                match str[..] {
-                    // for `def`
-                    [100, 101, 102] => Token::Def,
-                    // for `extern`
-                    [101, 120, 116, 101, 114, 110] => Token::Extern,
-                    _ => Token::Identifier(Box::from(str)),
+                match &str[..] {
+                    b"def" => Token::Def,
+                    b"extern" => Token::Extern,
+                    _ => Token::Identifier(str),
                 }
             }
             _ => self.emit_op(),
-        };
-        // println!("{:?}", tok);
-        tok
+        }
     }
 }
