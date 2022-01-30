@@ -1,4 +1,4 @@
 enum Context {
     Identifier(String),
-    Number(usize)
+    Number(usize),
 }

@@ -8,7 +8,7 @@ pub enum Operator {
     Sub,
     Mul,
     Div,
-    Other
+    Other,
 }
 
 impl Operator {
@@ -20,7 +20,7 @@ impl Operator {
             Operator::Sub => 30,
             Operator::Mul => 40,
             Operator::Div => 40,
-            _ => 0
+            _ => 0,
         }
     }
 }

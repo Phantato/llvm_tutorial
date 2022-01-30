@@ -1,2 +1,3 @@
 .vscode
+.llvmenv
 /target

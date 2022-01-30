@@ -13,8 +13,3 @@ pub fn is_alpha(c: &u8) -> bool {
 pub fn is_alnum(c: &u8) -> bool {
     is_digit(c) || is_alpha(c)
 }
-
-
-// pub fn is_alpha(c: u8) -> bool {
-
-// }
