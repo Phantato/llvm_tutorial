@@ -2,6 +2,7 @@ use llvm::builder::Builder;
 use llvm::context::Context;
 use llvm::execution_engine::{ExecutionEngine, JitFunction};
 use llvm::module::Module;
+use llvm::passes::PassManager;
 use llvm::types::{BasicMetadataTypeEnum, IntType};
 use llvm::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue,
@@ -20,7 +21,7 @@ pub struct CodeGen<'ctx, 'a> {
     context: &'ctx Context,
     builder: &'a Builder<'ctx>,
     module: &'a Module<'ctx>,
-    // fpm: PassManager<FunctionValue<'ctx>>,
+    fpm: &'a PassManager<FunctionValue<'ctx>>,
     execution_engine: ExecutionEngine<'ctx>,
     symbol_table: HashMap<Vec<u8>, BasicValueEnum<'ctx>>,
 }
@@ -30,6 +31,7 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
         source: &'ctx mut Parser<'ctx>,
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
+        fpm: &'a PassManager<FunctionValue<'ctx>>,
         module: &'a Module<'ctx>,
     ) -> CodeGen<'ctx, 'a> {
         CodeGen {
@@ -37,7 +39,7 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
             context,
             builder,
             module,
-            // fpm: PassManager::create(module),
+            fpm,
             execution_engine: module
                 .create_jit_execution_engine(OptimizationLevel::None)
                 .unwrap(),
@@ -180,6 +182,7 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
                 let body = self.emit_value_code(body);
                 self.builder.build_return(Some(&body));
                 if fn_val.verify(true) {
+                    self.fpm.run_on(&fn_val);
                     fn_val
                 } else {
                     unsafe {
