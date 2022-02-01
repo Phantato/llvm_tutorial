@@ -49,7 +49,27 @@ impl<'lex> Parser<'lex> {
                 }
                 _ => Node::Variable(name),
             },
-            _ => panic!("Expected to see a primary type here"),
+            Token::If => {
+                let predicate = Box::new(self.parse_expr());
+                if let Token::Then = self.look_ahead() {
+                    self.consume_token();
+                    let then = Box::new(self.parse_expr());
+                    if let Token::Else = self.look_ahead() {
+                        self.consume_token();
+                        let other = Box::new(self.parse_expr());
+                        Node::Condition {
+                            predicate,
+                            then,
+                            other,
+                        }
+                    } else {
+                        panic!("Expected to see else here");
+                    }
+                } else {
+                    panic!("Expected to see then here.")
+                }
+            }
+            tok @ _ => panic!("Expected to see a primary type here, but got {:?}", tok),
         }
     }
 

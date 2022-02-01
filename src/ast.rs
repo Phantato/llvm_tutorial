@@ -20,5 +20,10 @@ pub enum Node {
         prototype: Box<Node>,
         body: Box<Node>,
     },
+    Condition { 
+        predicate: Box<Node>,
+        then: Box<Node>,
+        other: Box<Node>,
+    },
     Eof,
 }

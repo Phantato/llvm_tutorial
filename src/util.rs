@@ -1,9 +1,11 @@
+use std::str;
+
 pub fn is_space(c: &u8) -> bool {
     [10, 13, 32].contains(c)
 }
 
 pub fn is_digit(c: &u8) -> bool {
-    (45..57).contains(c)
+    (48..57).contains(c)
 }
 
 pub fn is_alpha(c: &u8) -> bool {
@@ -12,4 +14,8 @@ pub fn is_alpha(c: &u8) -> bool {
 
 pub fn is_alnum(c: &u8) -> bool {
     is_digit(c) || is_alpha(c)
+}
+
+pub fn str_from_u8(v: &Vec<u8>) -> &str {
+    str::from_utf8(v).unwrap()
 }

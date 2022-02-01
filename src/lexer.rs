@@ -37,6 +37,7 @@ impl<'f> Lexer<'f> {
             44 => Token::Comma,
             45 => Token::Operator(Operator::Sub),
             47 => Token::Operator(Operator::Div),
+            60 => Token::Operator(Operator::Les),
             ch @ _ => panic!("{} is not valid here", ch),
         }
     }
@@ -63,6 +64,9 @@ impl<'f> Lexer<'f> {
                 match &str[..] {
                     b"def" => Token::Def,
                     b"extern" => Token::Extern,
+                    b"if" => Token::If,
+                    b"then" => Token::Then,
+                    b"else" => Token::Else,
                     _ => Token::Identifier(str),
                 }
             }
