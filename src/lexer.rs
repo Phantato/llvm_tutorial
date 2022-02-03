@@ -1,31 +1,32 @@
-use std::fs::File;
-use std::io::prelude::*;
-use std::mem::replace;
-
 use crate::operator::Operator;
 use crate::token::*;
 use crate::util::*;
 
-pub struct Lexer<'f> {
-    source: &'f File,
-    buffer: [u8; 1],
+pub struct Lexer {
+    source: Vec<u8>,
+    index: usize,
 }
 
-impl<'f> Lexer<'f> {
-    pub fn new(source: &'f mut File) -> Lexer<'f> {
-        let mut buffer = [0u8; 1];
-        source.read(&mut buffer).unwrap();
-        Lexer { source, buffer }
+impl Lexer {
+    pub fn new(source: Vec<u8>) -> Lexer {
+        Lexer { source, index: 0 }
     }
 
     fn consume_char(&mut self) -> u8 {
-        let mut buffer = [0u8; 1];
-        self.source.read(&mut buffer).unwrap();
-        replace(&mut self.buffer, buffer)[0]
+        if self.index < self.source.len() {
+            self.index += 1;
+            self.source[self.index - 1]
+        } else {
+            0
+        }
     }
 
     fn look_ahead(&self) -> &u8 {
-        &self.buffer[0]
+        if self.index < self.source.len() {
+            &self.source[self.index]
+        } else {
+            &0
+        }
     }
 
     fn emit_op(&mut self) -> Token {
@@ -36,7 +37,7 @@ impl<'f> Lexer<'f> {
             43 => Token::Operator(Operator::Add),
             44 => Token::Comma,
             45 => Token::Operator(Operator::Sub),
-            47 => Token::Operator(Operator::Div),
+            // 47 => Token::Operator(Operator::Div),
             60 => Token::Operator(Operator::Les),
             ch @ _ => panic!("{} is not valid here", ch),
         }

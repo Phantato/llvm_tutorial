@@ -15,6 +15,7 @@ mod token;
 mod util;
 
 use std::fs;
+use std::io::Read;
 
 use code_generator::CodeGen;
 use lexer::Lexer;
@@ -38,20 +39,20 @@ fn fn_optimizer<'m, 'ctx>(module: &'m Module<'ctx>) -> PassManager<FunctionValue
 }
 
 fn main() {
-    let mut source = fs::File::open("Input").unwrap();
-    let mut lexer = Lexer::new(&mut source);
-    let mut parser = Parser::new(&mut lexer);
+    // preload modules
+    for path in std::env::args().skip(1) {
+        let mut source = fs::File::open(&path).unwrap();
+        let context = Context::create();
+        let module = context.create_module(&path);
+        let builder = context.create_builder();
+        let fpm = fn_optimizer(&module);
 
-    let context = Context::create();
-    let module = context.create_module("repl");
-    let builder = context.create_builder();
-    let fpm = fn_optimizer(&module);
+        let mut buf = Vec::new();
+        source.read_to_end(&mut buf).unwrap();
 
-    let mut code_generator = CodeGen::new(&mut parser, &context, &builder, &fpm, &module);
-    loop {
-        match code_generator.emit_code() {
-            None => break,
-            Some(code) => println!("{:?}", code.print_to_stderr()),
-        }
+        let lexer = Lexer::new(buf);
+        let parser = Parser::new(lexer);
+        let mut code_generator = CodeGen::new(parser, &context, &builder, &fpm, &module);
+        while let Some(_) = code_generator.emit_and_run() {}
     }
 }

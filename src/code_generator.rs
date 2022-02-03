@@ -4,9 +4,7 @@ use llvm::execution_engine::{ExecutionEngine, JitFunction};
 use llvm::module::Module;
 use llvm::passes::PassManager;
 use llvm::types::{BasicMetadataTypeEnum, IntType};
-use llvm::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue,
-};
+use llvm::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue};
 use llvm::{IntPredicate, OptimizationLevel};
 
 use crate::ast::*;
@@ -18,18 +16,17 @@ use std::collections::HashMap;
 use std::str;
 
 pub struct CodeGen<'ctx, 'a> {
-    source: &'ctx mut Parser<'ctx>,
+    source: Parser,
     context: &'ctx Context,
     builder: &'a Builder<'ctx>,
     module: &'a Module<'ctx>,
     fpm: &'a PassManager<FunctionValue<'ctx>>,
-    execution_engine: ExecutionEngine<'ctx>,
     symbol_table: HashMap<Vec<u8>, BasicValueEnum<'ctx>>,
 }
 
 impl<'ctx, 'a> CodeGen<'ctx, 'a> {
     pub fn new(
-        source: &'ctx mut Parser<'ctx>,
+        source: Parser,
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
         fpm: &'a PassManager<FunctionValue<'ctx>>,
@@ -41,41 +38,68 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
             builder,
             module,
             fpm,
-            execution_engine: module
-                .create_jit_execution_engine(OptimizationLevel::None)
-                .unwrap(),
             symbol_table: HashMap::new(),
         }
     }
 
-    pub fn emit_code(&mut self) -> Option<FunctionValue<'ctx>> {
+    fn run_anon_fn(&mut self, body: Expr) {
+        let proto = Prototype::default();
+        let anon_module = self.context.create_module("__anon_module");
+        self.emit_fn_code(proto, body, &anon_module);
+
+        let ee = anon_module
+            .create_jit_execution_engine(OptimizationLevel::None)
+            .unwrap();
+        ee.add_module(self.module).unwrap();
+        let maybe_fn = unsafe { ee.get_function::<unsafe extern "C" fn() -> usize>("__anon_fn") };
+        let compiled_fn = match maybe_fn {
+            Ok(f) => f,
+            Err(err) => panic!("!> Error during execution: {:?}", err),
+        };
+        unsafe {
+            println!("=> {}", compiled_fn.call());
+        }
+        ee.remove_module(self.module).unwrap();
+    }
+
+    pub fn emit_and_run(&mut self) -> Option<()> {
         match self.consume_node() {
-            Node::Function { prototype, body } => Some(self.emit_fn_code(*prototype, *body)),
-            Node::Eof => None,
-            node @ _ => panic!("nothing to generate for {:?}", node),
+            Some(fun) => match fun.body {
+                None => panic!("Function without body!"),
+                Some(body) => Some(match fun.prototype {
+                    Some(prototype) => {
+                        self.emit_fn_code(prototype, body, self.module);
+                    }
+                    None => {
+                        self.run_anon_fn(body);
+                    }
+                }),
+            },
+            None => None,
         }
     }
 
     #[inline]
-    fn consume_node(&mut self) -> Node {
+    fn consume_node(&mut self) -> Option<Function> {
         self.source.emit_node()
     }
 
     #[inline]
     fn usize_type(&self) -> IntType<'ctx> {
-        self.context
-            .ptr_sized_int_type(self.execution_engine.get_target_data(), None)
+        self.context.i64_type()
+        // .ptr_sized_int_type(self.execution_engine.get_target_data(), None)
     }
 
     fn emit_op_code(
         &self,
         op: Operator,
-        left: Node,
-        right: Node,
+        left: Expr,
+        right: Expr,
         parent: &FunctionValue,
+        module: &Module<'ctx>,
     ) -> IntValue<'ctx> {
-        let lhs = self.emit_value_code(left, &parent);
-        let rhs = self.emit_value_code(right, &parent);
+        let lhs = self.emit_value_code(left, parent, module);
+        let rhs = self.emit_value_code(right, parent, module);
         match op {
             Operator::Add => self.builder.build_int_add(lhs, rhs, "tmpadd"),
             Operator::Sub => self.builder.build_int_sub(lhs, rhs, "tmpsub"),
@@ -83,25 +107,29 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
             Operator::Les => self
                 .builder
                 .build_int_compare(IntPredicate::ULT, lhs, rhs, "tmpcmp"),
-            _ => panic!("Operator not supported "),
+            // _ => panic!("Operator not supported "),
         }
     }
 
     fn emit_call_code(
         &self,
         name: &str,
-        args: Vec<Node>,
+        args: Vec<Expr>,
         parent: &FunctionValue,
+        module: &Module<'ctx>,
     ) -> IntValue<'ctx> {
         match self.module.get_function(name) {
-            Some(fn_val) => {
+            Some(mut fn_val) => {
+                if module != self.module {
+                    fn_val = module.add_function(name, fn_val.get_type(), None);
+                }
                 if fn_val.count_params() as usize != args.len() {
                     panic!("Incorrect # arguments passed");
                 }
 
                 let mut compiled_args = Vec::with_capacity(args.len());
                 for arg in args {
-                    compiled_args.push(self.emit_value_code(arg, parent));
+                    compiled_args.push(self.emit_value_code(arg, parent, module));
                 }
 
                 let argsv: Vec<BasicMetadataValueEnum> = compiled_args
@@ -126,13 +154,14 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
 
     fn emit_condition_code(
         &self,
-        predicate: Node,
-        consequence: Node,
-        alternative: Node,
+        predicate: Expr,
+        consequence: Expr,
+        alternative: Expr,
         parent: &FunctionValue,
+        module: &Module<'ctx>,
     ) -> IntValue<'ctx> {
         // entry
-        let cond = self.emit_value_code(predicate, parent);
+        let cond = self.emit_value_code(predicate, parent, module);
         let zero_const = self.context.bool_type().const_int(0, false);
 
         //blocks
@@ -146,14 +175,14 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
 
         // then
         self.builder.position_at_end(then);
-        let then_val = self.emit_value_code(consequence, parent);
+        let then_val = self.emit_value_code(consequence, parent, module);
         self.builder.build_unconditional_branch(merge);
 
         let then = self.builder.get_insert_block().unwrap();
 
         // build else block
         self.builder.position_at_end(other);
-        let other_val = self.emit_value_code(alternative, parent);
+        let other_val = self.emit_value_code(alternative, parent, module);
         self.builder.build_unconditional_branch(merge);
 
         let other = self.builder.get_insert_block().unwrap();
@@ -168,12 +197,17 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
         phi.as_basic_value().into_int_value()
     }
 
-    fn emit_value_code(&self, node: Node, parent: &FunctionValue) -> IntValue<'ctx> {
-        match node {
-            Node::Number(value) => self
+    fn emit_value_code(
+        &self,
+        expr: Expr,
+        parent: &FunctionValue,
+        module: &Module<'ctx>,
+    ) -> IntValue<'ctx> {
+        match expr {
+            Expr::Number(value) => self
                 .usize_type()
                 .const_int(value.try_into().unwrap(), false),
-            Node::Variable(name) => match self.symbol_table.get(&name) {
+            Expr::Variable(name) => match self.symbol_table.get(&name) {
                 Some(var) => var.into_int_value(),
                 // self
                 //     .builder
@@ -187,18 +221,24 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
                     str_from_u8(&name)
                 ),
             },
-            Node::Binary { op, lhs, rhs } => self.emit_op_code(op, *lhs, *rhs, parent),
-            Node::Call { name, args } => self.emit_call_code(str_from_u8(&name), args, parent),
-            Node::Condition {
+            Expr::Binary { op, lhs, rhs } => self.emit_op_code(op, *lhs, *rhs, parent, module),
+            Expr::Call { name, args } => {
+                self.emit_call_code(str_from_u8(&name), args, parent, module)
+            }
+            Expr::Condition {
                 predicate,
                 then,
                 other,
-            } => self.emit_condition_code(*predicate, *then, *other, parent),
-            _ => panic!("Expected to see a value here"),
+            } => self.emit_condition_code(*predicate, *then, *other, parent, module),
         }
     }
 
-    fn emit_proto_type(&self, name: Vec<u8>, args: Vec<Vec<u8>>) -> FunctionValue<'ctx> {
+    fn emit_proto_type(
+        &self,
+        name: Vec<u8>,
+        args: Vec<Vec<u8>>,
+        module: &Module<'ctx>,
+    ) -> FunctionValue<'ctx> {
         let ret_type = self.usize_type();
         let args_types = std::iter::repeat(ret_type)
             .take(args.len())
@@ -207,7 +247,7 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
         let args_types = args_types.as_slice();
 
         let fn_type = self.usize_type().fn_type(args_types, false);
-        let fn_val = self.module.add_function(str_from_u8(&name), fn_type, None);
+        let fn_val = module.add_function(str_from_u8(&name), fn_type, None);
 
         for (i, arg) in fn_val.get_param_iter().enumerate() {
             arg.into_int_value().set_name(str_from_u8(&args[i]));
@@ -215,39 +255,43 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
         fn_val
     }
 
-    fn emit_fn_code(&mut self, prototype: Node, body: Node) -> FunctionValue<'ctx> {
-        if let Node::Prototype { name, args } = prototype {
-            let args_num = args.len();
-            let fn_val = match self.module.get_function(str_from_u8(&name)) {
-                Some(fn_val) => fn_val,
-                None => self.emit_proto_type(name, args),
-            };
-            let entry = self.context.append_basic_block(fn_val, "entry");
-            self.builder.position_at_end(entry);
-            self.symbol_table.reserve(args_num);
+    fn emit_fn_code(
+        &mut self,
+        prototype: Prototype,
+        body: Expr,
+        module: &Module<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        let name = prototype.name;
+        let args = prototype.args;
+        let args_num = args.len();
+        let fn_val = match module.get_function(str_from_u8(&name)) {
+            Some(fn_val) => fn_val,
+            None => self.emit_proto_type(name, args, module),
+        };
+        let entry = self.context.append_basic_block(fn_val, "entry");
+        self.builder.position_at_end(entry);
+        self.symbol_table.reserve(args_num);
 
-            for arg in fn_val.get_param_iter() {
-                // let arg_name = str_from_u8(args[i]);
-                // let alloca = self.create_entry_block_alloca(arg_name);
-                // self.builder.build_store(alloca, arg);
-                self.symbol_table.insert(
-                    arg.into_int_value().get_name().to_bytes().to_vec(),
-                    arg.into(),
-                );
-            }
-            let body = self.emit_value_code(body, &fn_val);
-            self.builder.build_return(Some(&body));
-            if fn_val.verify(true) {
-                self.fpm.run_on(&fn_val);
-                fn_val
-            } else {
-                unsafe {
-                    fn_val.delete();
-                }
-                panic!("Invalid generated function.")
-            }
+        for arg in fn_val.get_param_iter() {
+            // let arg_name = str_from_u8(args[i]);
+            // let alloca = self.create_entry_block_alloca(arg_name);
+            // self.builder.build_store(alloca, arg);
+            self.symbol_table.insert(
+                arg.into_int_value().get_name().to_bytes().to_vec(),
+                arg.into(),
+            );
+        }
+
+        let body = self.emit_value_code(body, &fn_val, module);
+        self.builder.build_return(Some(&body));
+        if fn_val.verify(true) {
+            self.fpm.run_on(&fn_val);
+            fn_val
         } else {
-            panic!("Supposed to see a prototype")
+            unsafe {
+                fn_val.delete();
+            }
+            panic!("Invalid generated function.")
         }
     }
 }

@@ -2,37 +2,37 @@ use std::cmp::Ordering;
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum Operator {
-    Assign,
+    // Assign,
     Les,
     Add,
     Sub,
     Mul,
-    Div,
-    Other,
+    // Div,
+    // Other,
 }
 
 impl Operator {
     pub fn precedence(&self) -> i8 {
         match self {
-            Operator::Assign => 10,
+            // Operator::Assign => 10,
             Operator::Les => 20,
             Operator::Add => 30,
             Operator::Sub => 30,
             Operator::Mul => 40,
-            Operator::Div => 40,
-            _ => 0,
+            // Operator::Div => 40,
+            // _ => 0,
         }
     }
 
     pub fn is_binary_op(&self) -> bool {
         match self {
-            Operator::Assign
-            | Operator::Add
+            // Operator::Assign
+            Operator::Add
             | Operator::Sub
             | Operator::Mul
-            | Operator::Div
+            // | Operator::Div
             | Operator::Les => true,
-            _ => false,
+            // _ => false,
         }
     }
 }

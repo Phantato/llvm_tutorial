@@ -4,13 +4,13 @@ use crate::ast::*;
 use crate::lexer::Lexer;
 use crate::token::*;
 
-pub struct Parser<'lex> {
-    source: &'lex mut Lexer<'lex>,
+pub struct Parser {
+    source: Lexer,
     buffer: Token,
 }
 
-impl<'lex> Parser<'lex> {
-    pub fn new(source: &'lex mut Lexer<'lex>) -> Parser<'lex> {
+impl Parser {
+    pub fn new(mut source: Lexer) -> Parser {
         let buffer = source.emit_token();
         Parser { source, buffer }
     }
@@ -23,9 +23,9 @@ impl<'lex> Parser<'lex> {
         &self.buffer
     }
 
-    fn parse_primary(&mut self) -> Node {
+    fn parse_primary(&mut self) -> Expr {
         match self.consume_token() {
-            Token::Number(value) => Node::Number(value),
+            Token::Number(value) => Expr::Number(value),
             Token::LeftParenthesis => {
                 let ret = self.parse_expr();
                 match self.consume_token() {
@@ -45,9 +45,9 @@ impl<'lex> Parser<'lex> {
                             _ => panic!("Expected to see `)` or `,` in arguments list"),
                         };
                     }
-                    Node::Call { name, args }
+                    Expr::Call { name, args }
                 }
-                _ => Node::Variable(name),
+                _ => Expr::Variable(name),
             },
             Token::If => {
                 let predicate = Box::new(self.parse_expr());
@@ -57,7 +57,7 @@ impl<'lex> Parser<'lex> {
                     if let Token::Else = self.look_ahead() {
                         self.consume_token();
                         let other = Box::new(self.parse_expr());
-                        Node::Condition {
+                        Expr::Condition {
                             predicate,
                             then,
                             other,
@@ -73,7 +73,7 @@ impl<'lex> Parser<'lex> {
         }
     }
 
-    fn parse_binary_expr(&mut self, mut lhs: Node, precedence: i8) -> Node {
+    fn parse_binary_expr(&mut self, mut lhs: Expr, precedence: i8) -> Expr {
         while let Token::Operator(op) = self.look_ahead() {
             if precedence > op.precedence() {
                 break;
@@ -88,7 +88,7 @@ impl<'lex> Parser<'lex> {
                         break;
                     }
                 }
-                lhs = Node::Binary {
+                lhs = Expr::Binary {
                     op,
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
@@ -98,12 +98,12 @@ impl<'lex> Parser<'lex> {
         lhs
     }
 
-    fn parse_expr(&mut self) -> Node {
+    fn parse_expr(&mut self) -> Expr {
         let lhs = self.parse_primary();
         self.parse_binary_expr(lhs, 0)
     }
 
-    fn parse_prototypes(&mut self) -> Node {
+    fn parse_prototypes(&mut self) -> Prototype {
         if let Token::Identifier(name) = self.consume_token() {
             if let Token::LeftParenthesis = self.consume_token() {
                 let mut args = Vec::new();
@@ -115,7 +115,7 @@ impl<'lex> Parser<'lex> {
                         tok @ _ => panic!("Unexpected token here {:?}", tok),
                     }
                 }
-                Node::Prototype { name, args }
+                Prototype { name, args }
             } else {
                 panic!("Expected to see `(` in `prototype");
             }
@@ -124,34 +124,39 @@ impl<'lex> Parser<'lex> {
         }
     }
 
-    fn parse_def(&mut self) -> Node {
+    fn parse_def(&mut self) -> Function {
         self.consume_token();
-        let prototype = Box::new(self.parse_prototypes());
-        let body = Box::new(self.parse_expr());
-        Node::Function { prototype, body }
+        let prototype = Some(self.parse_prototypes());
+        let body = Some(self.parse_expr());
+        Function { prototype, body }
     }
 
-    fn parse_extern(&mut self) -> Node {
+    fn parse_extern(&mut self) -> Function {
         self.consume_token();
-        self.parse_prototypes()
-    }
-
-    fn parse_top_level_expr(&mut self) -> Node {
-        Node::Function {
-            prototype: Box::new(Node::Prototype {
-                name: Vec::from("__anon_expr"),
-                args: Vec::new(),
-            }),
-            body: Box::new(self.parse_expr()),
+        let prototype = Some(self.parse_prototypes());
+        Function {
+            prototype,
+            body: None,
         }
     }
 
-    pub fn emit_node(&mut self) -> Node {
+    fn parse_top_level_expr(&mut self) -> Function {
+        Function {
+            prototype: None,
+            body: Some(self.parse_expr()),
+        }
+    }
+
+    pub fn emit_node(&mut self) -> Option<Function> {
         match self.look_ahead() {
-            Token::Eof => Node::Eof,
-            Token::Def => self.parse_def(),
-            Token::Extern => self.parse_extern(),
-            _ => self.parse_top_level_expr(),
+            Token::Eof => None,
+            Token::Def => Some(self.parse_def()),
+            Token::Extern => {
+                // omit extern for now.
+                self.parse_extern();
+                self.emit_node()
+            }
+            _ => Some(self.parse_top_level_expr()),
         }
     }
 }
