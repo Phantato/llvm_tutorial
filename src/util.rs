@@ -5,11 +5,11 @@ pub fn is_space(c: &u8) -> bool {
 }
 
 pub fn is_digit(c: &u8) -> bool {
-    (48..57).contains(c)
+    (48..58).contains(c)
 }
 
 pub fn is_alpha(c: &u8) -> bool {
-    (65..90).contains(c) || (97..122).contains(c)
+    (65..91).contains(c) || (97..123).contains(c)
 }
 
 pub fn is_alnum(c: &u8) -> bool {
