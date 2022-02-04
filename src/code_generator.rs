@@ -16,9 +16,9 @@ use std::str;
 
 pub struct CodeGen<'ctx, 'a> {
     context: &'ctx Context,
-    parser: Parser<'a>,
-    builder: &'a Builder<'ctx>,
+    parser: &'a mut dyn Iterator<Item = (Function, Vec<u8>)>,
     module: &'a Module<'ctx>,
+    builder: &'a Builder<'ctx>,
     fpm: &'a PassManager<FunctionValue<'ctx>>,
     symbol_table: HashMap<Vec<u8>, BasicValueEnum<'ctx>>,
     parsed_buffer: Vec<u8>,
@@ -26,17 +26,17 @@ pub struct CodeGen<'ctx, 'a> {
 
 impl<'ctx, 'a> CodeGen<'ctx, 'a> {
     pub fn new(
-        parser: Parser<'a>,
+        parser: &'a mut dyn Iterator<Item = (Function, Vec<u8>)>,
         context: &'ctx Context,
+        module: &'a Module<'ctx>,
         builder: &'a Builder<'ctx>,
         fpm: &'a PassManager<FunctionValue<'ctx>>,
-        module: &'a Module<'ctx>,
     ) -> CodeGen<'ctx, 'a> {
         CodeGen {
-            context,
             parser,
-            builder,
+            context,
             module,
+            builder,
             fpm,
             symbol_table: HashMap::new(),
             parsed_buffer: Vec::new(),
@@ -89,7 +89,7 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
 
     #[inline]
     fn consume_node(&mut self) -> Option<Function> {
-        match self.parser.emit_node() {
+        match self.parser.next() {
             Some((fun, buf)) => {
                 self.parsed_buffer = buf;
                 Some(fun)
@@ -132,37 +132,37 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
         parent: &FunctionValue,
         module: &Module<'ctx>,
     ) -> IntValue<'ctx> {
-        match self.module.get_function(name) {
-            Some(mut fn_val) => {
-                if module != self.module {
-                    fn_val = module.add_function(name, fn_val.get_type(), None);
-                }
-                if fn_val.count_params() as usize != args.len() {
-                    panic!("Incorrect # of arguments passed");
-                }
+        let fn_val = match module.get_function(name) {
+            Some(fn_val) => fn_val,
+            None => match self.module.get_function(name) {
+                Some(fn_val) => module.add_function(name, fn_val.get_type(), None),
+                None => panic!("Could not find function `{}`", name),
+            },
+        };
 
-                let mut compiled_args = Vec::with_capacity(args.len());
-                for arg in args {
-                    compiled_args.push(self.emit_value_code(arg, parent, module));
-                }
+        if fn_val.count_params() as usize != args.len() {
+            panic!("Incorrect # of arguments passed");
+        }
 
-                let argsv: Vec<BasicMetadataValueEnum> = compiled_args
-                    .iter()
-                    .by_ref()
-                    .map(|&val| val.into())
-                    .collect();
+        let mut compiled_args = Vec::with_capacity(args.len());
+        for arg in args {
+            compiled_args.push(self.emit_value_code(arg, parent, module));
+        }
 
-                match self
-                    .builder
-                    .build_call(fn_val, argsv.as_slice(), "tmp")
-                    .try_as_basic_value()
-                    .left()
-                {
-                    Some(value) => value.into_int_value(),
-                    None => panic!("Invalid call produced."),
-                }
-            }
-            None => panic!("Could not find function `{}`", name),
+        let argsv: Vec<BasicMetadataValueEnum> = compiled_args
+            .iter()
+            .by_ref()
+            .map(|&val| val.into())
+            .collect();
+
+        match self
+            .builder
+            .build_call(fn_val, argsv.as_slice(), "tmp")
+            .try_as_basic_value()
+            .left()
+        {
+            Some(value) => value.into_int_value(),
+            None => panic!("Invalid call produced."),
         }
     }
 

@@ -7,6 +7,7 @@ use llvm::values::FunctionValue;
 
 mod ast;
 mod code_generator;
+mod executor;
 mod lexer;
 mod operator;
 mod parser;
@@ -14,11 +15,21 @@ mod token;
 mod util;
 
 use std::fs;
-use std::io::Read;
+use std::io::{stdin, stdout, Read, Write};
 
+use ast::Function;
 use code_generator::CodeGen;
 use lexer::Lexer;
 use parser::Parser;
+use util::*;
+
+macro_rules! print_flush {
+    ( $( $x:expr ),* ) => {
+        print!( $($x, )* );
+
+        stdout().flush().expect("Could not flush to standard output.");
+    };
+}
 
 fn fn_optimizer<'m, 'ctx>(module: &'m Module<'ctx>) -> PassManager<FunctionValue<'ctx>> {
     let fpm = PassManager::create(module);
@@ -49,9 +60,9 @@ fn main() {
         let mut buf = Vec::new();
         source.read_to_end(&mut buf).unwrap();
 
-        let lexer = Lexer::new(&buf);
-        let parser = Parser::new(lexer);
-        let mut code_generator = CodeGen::new(parser, &context, &builder, &fpm, &module);
+        let mut lex = Lexer::new(&buf);
+        let mut par = Parser::new(&mut lex);
+        let mut code_generator = CodeGen::new(&mut par, &context, &module, &builder, &fpm);
         while let Some(_) = code_generator.emit_and_run() {}
     }
 }

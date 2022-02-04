@@ -3,34 +3,41 @@ use std::mem::replace;
 use crate::ast::*;
 use crate::lexer::Lexer;
 use crate::token::*;
+use crate::util::*;
 
-pub struct Parser<'lexer> {
-    lexer: Lexer<'lexer>,
-    buffer: Token,
+pub struct Parser<'a> {
+    lexer: &'a mut dyn Iterator<Item = (Token, Vec<u8>)>,
+    token: Token,
     parsed_buffer: Vec<Vec<u8>>,
-    ahead_buffer: Vec<u8>,
+    buffer: Vec<u8>,
 }
 
-impl<'lexer> Parser<'lexer> {
-    pub fn new(mut lexer: Lexer) -> Parser {
-        let (buffer, ahead_buffer) = lexer.emit_token();
+impl<'a> Iterator for Parser<'a> {
+    type Item = (Function, Vec<u8>);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.emit_node()
+    }
+}
+
+impl<'a> Parser<'a> {
+    pub fn new(lexer: &'a mut dyn Iterator<Item = (Token, Vec<u8>)>) -> Parser<'a> {
+        let (token, buffer) = lexer.next().unwrap();
         Parser {
             lexer,
-            buffer,
+            token,
             parsed_buffer: Vec::new(),
-            ahead_buffer,
+            buffer,
         }
     }
 
     fn consume_token(&mut self) -> Token {
-        let (tok, source) = self.lexer.emit_token();
-        self.parsed_buffer
-            .push(replace(&mut self.ahead_buffer, source));
-        replace(&mut self.buffer, tok)
+        let (tok, buf) = self.lexer.next().unwrap();
+        self.parsed_buffer.push(replace(&mut self.buffer, buf));
+        replace(&mut self.token, tok)
     }
 
     fn look_ahead(&self) -> &Token {
-        &self.buffer
+        &self.token
     }
 
     fn parse_primary(&mut self) -> Expr {
@@ -52,7 +59,10 @@ impl<'lexer> Parser<'lexer> {
                         match self.consume_token() {
                             Token::Comma => continue,
                             Token::RightParenthesis => break,
-                            _ => panic!("Expected to see `)` or `,` in arguments list"),
+                            _ => panic!(
+                                "Expected to see `)` or `,` in arguments list of {}",
+                                str_from_u8(&name)
+                            ),
                         };
                     }
                     Expr::Call { name, args }

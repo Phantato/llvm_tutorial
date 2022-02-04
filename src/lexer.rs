@@ -4,10 +4,17 @@ use crate::operator::Operator;
 use crate::token::*;
 use crate::util::*;
 
-pub struct Lexer<'source> {
-    source: &'source Vec<u8>,
+pub struct Lexer<'a> {
+    source: &'a Vec<u8>,
     index: usize,
     parsed_buffer: Vec<u8>,
+}
+
+impl<'a> Iterator for Lexer<'a> {
+    type Item = (Token, Vec<u8>);
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.emit_token())
+    }
 }
 
 impl<'a> Lexer<'a> {
