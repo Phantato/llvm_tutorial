@@ -1,9 +1,8 @@
 extern crate inkwell as llvm;
 
 use llvm::context::Context;
-use llvm::passes::PassManager;
-// use llvm::execution_engine::{ExecutionEngine, JitFunction};
 use llvm::module::Module;
+use llvm::passes::PassManager;
 use llvm::values::FunctionValue;
 
 mod ast;
@@ -39,18 +38,18 @@ fn fn_optimizer<'m, 'ctx>(module: &'m Module<'ctx>) -> PassManager<FunctionValue
 }
 
 fn main() {
+    let context = Context::create();
+    let module = context.create_module("preload");
+    let builder = context.create_builder();
+    let fpm = fn_optimizer(&module);
     // preload modules
     for path in std::env::args().skip(1) {
         let mut source = fs::File::open(&path).unwrap();
-        let context = Context::create();
-        let module = context.create_module(&path);
-        let builder = context.create_builder();
-        let fpm = fn_optimizer(&module);
 
         let mut buf = Vec::new();
         source.read_to_end(&mut buf).unwrap();
 
-        let lexer = Lexer::new(buf);
+        let lexer = Lexer::new(&buf);
         let parser = Parser::new(lexer);
         let mut code_generator = CodeGen::new(parser, &context, &builder, &fpm, &module);
         while let Some(_) = code_generator.emit_and_run() {}

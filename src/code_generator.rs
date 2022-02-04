@@ -1,6 +1,5 @@
 use llvm::builder::Builder;
 use llvm::context::Context;
-use llvm::execution_engine::{ExecutionEngine, JitFunction};
 use llvm::module::Module;
 use llvm::passes::PassManager;
 use llvm::types::{BasicMetadataTypeEnum, IntType};
@@ -16,29 +15,31 @@ use std::collections::HashMap;
 use std::str;
 
 pub struct CodeGen<'ctx, 'a> {
-    source: Parser,
     context: &'ctx Context,
+    parser: Parser<'a>,
     builder: &'a Builder<'ctx>,
     module: &'a Module<'ctx>,
     fpm: &'a PassManager<FunctionValue<'ctx>>,
     symbol_table: HashMap<Vec<u8>, BasicValueEnum<'ctx>>,
+    parsed_buffer: Vec<u8>,
 }
 
 impl<'ctx, 'a> CodeGen<'ctx, 'a> {
     pub fn new(
-        source: Parser,
+        parser: Parser<'a>,
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
         fpm: &'a PassManager<FunctionValue<'ctx>>,
         module: &'a Module<'ctx>,
     ) -> CodeGen<'ctx, 'a> {
         CodeGen {
-            source,
             context,
+            parser,
             builder,
             module,
             fpm,
             symbol_table: HashMap::new(),
+            parsed_buffer: Vec::new(),
         }
     }
 
@@ -57,31 +58,44 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
             Err(err) => panic!("!> Error during execution: {:?}", err),
         };
         unsafe {
-            println!("=> {}", compiled_fn.call());
+            println!(
+                "{} => {}",
+                str_from_u8(&self.parsed_buffer),
+                compiled_fn.call()
+            );
         }
         ee.remove_module(self.module).unwrap();
     }
 
     pub fn emit_and_run(&mut self) -> Option<()> {
         match self.consume_node() {
-            Some(fun) => match fun.body {
-                None => panic!("Function without body!"),
-                Some(body) => Some(match fun.prototype {
-                    Some(prototype) => {
-                        self.emit_fn_code(prototype, body, self.module);
-                    }
-                    None => {
-                        self.run_anon_fn(body);
-                    }
-                }),
-            },
+            Some(fun) => Some(match (fun.prototype, fun.body) {
+                (Some(proto), Some(body)) => {
+                    self.emit_fn_code(proto, body, self.module);
+                }
+                (None, Some(body)) => {
+                    self.run_anon_fn(body);
+                }
+                (Some(proto), None) => {
+                    self.emit_proto_type(proto.name, proto.args, self.module);
+                }
+                (None, None) => {
+                    panic!("Unsupposed to see a function without nither prototype nor body!")
+                }
+            }),
             None => None,
         }
     }
 
     #[inline]
     fn consume_node(&mut self) -> Option<Function> {
-        self.source.emit_node()
+        match self.parser.emit_node() {
+            Some((fun, buf)) => {
+                self.parsed_buffer = buf;
+                Some(fun)
+            }
+            None => None,
+        }
     }
 
     #[inline]
@@ -124,7 +138,7 @@ impl<'ctx, 'a> CodeGen<'ctx, 'a> {
                     fn_val = module.add_function(name, fn_val.get_type(), None);
                 }
                 if fn_val.count_params() as usize != args.len() {
-                    panic!("Incorrect # arguments passed");
+                    panic!("Incorrect # of arguments passed");
                 }
 
                 let mut compiled_args = Vec::with_capacity(args.len());

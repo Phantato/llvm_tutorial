@@ -4,19 +4,29 @@ use crate::ast::*;
 use crate::lexer::Lexer;
 use crate::token::*;
 
-pub struct Parser {
-    source: Lexer,
+pub struct Parser<'lexer> {
+    lexer: Lexer<'lexer>,
     buffer: Token,
+    parsed_buffer: Vec<Vec<u8>>,
+    ahead_buffer: Vec<u8>,
 }
 
-impl Parser {
-    pub fn new(mut source: Lexer) -> Parser {
-        let buffer = source.emit_token();
-        Parser { source, buffer }
+impl<'lexer> Parser<'lexer> {
+    pub fn new(mut lexer: Lexer) -> Parser {
+        let (buffer, ahead_buffer) = lexer.emit_token();
+        Parser {
+            lexer,
+            buffer,
+            parsed_buffer: Vec::new(),
+            ahead_buffer,
+        }
     }
 
     fn consume_token(&mut self) -> Token {
-        replace(&mut self.buffer, self.source.emit_token())
+        let (tok, source) = self.lexer.emit_token();
+        self.parsed_buffer
+            .push(replace(&mut self.ahead_buffer, source));
+        replace(&mut self.buffer, tok)
     }
 
     fn look_ahead(&self) -> &Token {
@@ -147,16 +157,23 @@ impl Parser {
         }
     }
 
-    pub fn emit_node(&mut self) -> Option<Function> {
-        match self.look_ahead() {
+    pub fn pop_parsed_buffer(&mut self) -> Vec<u8> {
+        replace(&mut self.parsed_buffer, Vec::new())
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
+    pub fn emit_node(&mut self) -> Option<(Function, Vec<u8>)> {
+        let ret = match self.look_ahead() {
             Token::Eof => None,
             Token::Def => Some(self.parse_def()),
-            Token::Extern => {
-                // omit extern for now.
-                self.parse_extern();
-                self.emit_node()
-            }
+            Token::Extern => Some(self.parse_extern()),
             _ => Some(self.parse_top_level_expr()),
+        };
+        match ret {
+            Some(fun) => Some((fun, self.pop_parsed_buffer())),
+            None => None,
         }
     }
 }

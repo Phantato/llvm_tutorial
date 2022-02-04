@@ -1,23 +1,33 @@
+use std::mem::replace;
+
 use crate::operator::Operator;
 use crate::token::*;
 use crate::util::*;
 
-pub struct Lexer {
-    source: Vec<u8>,
+pub struct Lexer<'source> {
+    source: &'source Vec<u8>,
     index: usize,
+    parsed_buffer: Vec<u8>,
 }
 
-impl Lexer {
-    pub fn new(source: Vec<u8>) -> Lexer {
-        Lexer { source, index: 0 }
+impl<'a> Lexer<'a> {
+    pub fn new(source: &Vec<u8>) -> Lexer {
+        Lexer {
+            source,
+            index: 0,
+            parsed_buffer: Vec::new(),
+        }
     }
 
-    fn consume_char(&mut self) -> u8 {
+    fn consume_char(&mut self) -> &u8 {
         if self.index < self.source.len() {
+            if !is_space(&self.source[self.index]) {
+                self.parsed_buffer.push(self.source[self.index]);
+            }
             self.index += 1;
-            self.source[self.index - 1]
+            &self.source[self.index - 1]
         } else {
-            0
+            &0
         }
     }
 
@@ -43,11 +53,15 @@ impl Lexer {
         }
     }
 
-    pub fn emit_token(&mut self) -> Token {
+    pub fn pop_parsed_buffer(&mut self) -> Vec<u8> {
+        replace(&mut self.parsed_buffer, Vec::new())
+    }
+
+    pub fn emit_token(&mut self) -> (Token, Vec<u8>) {
         while is_space(self.look_ahead()) {
             self.consume_char();
         }
-        match self.look_ahead() {
+        let tok = match self.look_ahead() {
             0 => Token::Eof,
             ch @ _ if is_digit(ch) => {
                 let mut number: usize = 0;
@@ -60,7 +74,7 @@ impl Lexer {
             ch @ _ if is_alpha(ch) => {
                 let mut str: Vec<u8> = Vec::new();
                 while is_alnum(self.look_ahead()) {
-                    str.push(self.consume_char());
+                    str.push(*self.consume_char());
                 }
                 match &str[..] {
                     b"def" => Token::Def,
@@ -72,6 +86,7 @@ impl Lexer {
                 }
             }
             _ => self.emit_op(),
-        }
+        };
+        (tok, self.pop_parsed_buffer())
     }
 }
