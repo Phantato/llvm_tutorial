@@ -65,4 +65,20 @@ fn main() {
         let mut code_generator = CodeGen::new(&mut par, &context, &module, &builder, &fpm);
         while let Some(_) = code_generator.emit_and_run() {}
     }
+
+    loop {
+        print_flush!("> ");
+        let mut line = String::new();
+        stdin().read_line(&mut line).expect("Error reading");
+        if line.chars().all(char::is_whitespace) {
+            continue;
+        } else if line.starts_with("exit") || line.starts_with("quit") {
+            break;
+        }
+        let buf = line.as_bytes().to_vec();
+        let mut lex = Lexer::new(&buf);
+        let mut par = Parser::new(&mut lex);
+        let mut code_generator = CodeGen::new(&mut par, &context, &module, &builder, &fpm);
+        while let Some(_) = code_generator.emit_and_run() {}
+    }
 }
